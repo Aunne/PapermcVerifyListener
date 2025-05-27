@@ -2,18 +2,20 @@ package com.example;
 
 import okhttp3.*;
 import org.bukkit.Bukkit;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.*;
-import org.bukkit.event.player.*;
 import org.bukkit.event.block.*;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.inventory.*;
+import org.bukkit.event.player.*;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
 import java.io.IOException;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class VerifyListener extends JavaPlugin implements Listener {
 
@@ -21,10 +23,40 @@ public class VerifyListener extends JavaPlugin implements Listener {
     private static final String API_BASE = "http://127.0.0.1:8000";
     private final Set<UUID> verifiedPlayers = ConcurrentHashMap.newKeySet();
 
+    // YAML 檔案相關
+    private File verifiedFile;
+    private YamlConfiguration verifiedConfig;
+
     @Override
     public void onEnable() {
         getLogger().info("VerifyListener 啟動！");
         Bukkit.getPluginManager().registerEvents(this, this);
+
+        // 初始化 YAML 檔案
+        verifiedFile = new File(getDataFolder(), "verified_players.yml");
+        if (!verifiedFile.exists()) {
+            verifiedFile.getParentFile().mkdirs();
+            try {
+                verifiedFile.createNewFile();
+            } catch (IOException e) {
+                getLogger().warning("無法建立 verified_players.yml！");
+            }
+        }
+        verifiedConfig = YamlConfiguration.loadConfiguration(verifiedFile);
+
+        // 讀取已驗證 UUID
+        if (verifiedConfig.contains("players")) {
+            for (String uuidStr : verifiedConfig.getStringList("players")) {
+                try {
+                    verifiedPlayers.add(UUID.fromString(uuidStr));
+                } catch (IllegalArgumentException ignored) {}
+            }
+        }
+    }
+
+    @Override
+    public void onDisable() {
+        saveVerifiedPlayers(); // 關閉時同步保存
     }
 
     // 1. 移動攔截
@@ -45,7 +77,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         String msg = event.getMessage();
         if (msg.toLowerCase().startsWith("/verify ")) {
-            event.setCancelled(true); // 攔下不讓伺服器處理
+            event.setCancelled(true);
             String[] parts = msg.split(" ", 2);
             if (parts.length < 2 || parts[1].isEmpty()) {
                 player.sendMessage("§c請輸入驗證碼，例如 /verify 你的驗證碼");
@@ -56,7 +88,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
             sendVerifyToAPI(player, uuid, code);
             return;
         }
-        // 其他指令全部攔截
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             event.setCancelled(true);
             player.sendMessage("§c驗證前只能執行 /verify 驗證碼");
@@ -93,7 +124,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
             checkAndHandle((Player)event.getPlayer(), event);
     }
 
-    // 5. 玩家離線時移除快取
+    // 5. 玩家離線時只移除記憶體快取
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         verifiedPlayers.remove(event.getPlayer().getUniqueId());
@@ -104,6 +135,19 @@ public class VerifyListener extends JavaPlugin implements Listener {
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             event.setCancelled(true);
             player.sendMessage("§c請先完成驗證（/verify 驗證碼）才可操作！");
+        }
+    }
+
+    // ==== YAML 保存 ====
+    private void saveVerifiedPlayers() {
+        List<String> uuidList = verifiedPlayers.stream()
+            .map(UUID::toString)
+            .collect(Collectors.toList());
+        verifiedConfig.set("players", uuidList);
+        try {
+            verifiedConfig.save(verifiedFile);
+        } catch (IOException e) {
+            getLogger().warning("無法儲存 verified_players.yml！");
         }
     }
 
@@ -119,18 +163,25 @@ public class VerifyListener extends JavaPlugin implements Listener {
         httpClient.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                player.sendMessage("§c驗證失敗：無法聯絡伺服器！");
+                Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
+                    player.sendMessage("§c驗證失敗：無法聯絡伺服器！");
+                });
                 Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗（無法聯絡伺服器）");
             }
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
                 if (response.isSuccessful() && result.contains("驗證成功")) {
-                    player.sendMessage("§a" + result);
+                    Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
+                        player.sendMessage("§a" + result);
+                        verifiedPlayers.add(player.getUniqueId());
+                        saveVerifiedPlayers();
+                    });
                     Bukkit.getConsoleSender().sendMessage("§a[VerifyListener] 玩家 " + player.getName() + " 驗證成功！");
-                    verifiedPlayers.add(player.getUniqueId());
                 } else {
-                    player.sendMessage("§c" + result);
+                    Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
+                        player.sendMessage("§c" + result);
+                    });
                     Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗：" + result);
                 }
             }
