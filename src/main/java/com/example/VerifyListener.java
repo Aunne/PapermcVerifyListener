@@ -100,9 +100,8 @@ public class VerifyListener extends JavaPlugin implements Listener {
 
     // 驗證碼提交
     private void sendVerifyToAPI(Player player, String uuid, String code) {
-        String url = API_BASE + "/verify_chat";
+        String url = API_BASE + "/verify";
         RequestBody body = new FormBody.Builder()
-                .add("player", player.getName())
                 .add("uuid", uuid)
                 .add("code", code)
                 .build();
