@@ -11,9 +11,12 @@ import org.bukkit.event.inventory.*;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
+import java.net.http.WebSocket.Listener;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import javax.security.auth.callback.Callback;
 
 public class VerifyListener extends JavaPlugin implements Listener {
 
@@ -54,20 +57,43 @@ public class VerifyListener extends JavaPlugin implements Listener {
     }
 
     // ========== 3. 攔其他互動/背包/物品/攻擊等 ==========
-    @EventHandler public void onBlockPlace(BlockPlaceEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onBlockBreak(BlockBreakEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player)
-            checkAndHandle((Player)event.getDamager(), event);
-        if (event.getEntity() instanceof Player)
-            checkAndHandle((Player)event.getEntity(), event);
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent event) {
+        checkAndHandle(event.getPlayer(), event);
     }
-    @EventHandler public void onInteract(PlayerInteractEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onPickup(PlayerPickupItemEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onDrop(PlayerDropItemEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onOpenInventory(InventoryOpenEvent event) {
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player)
+            checkAndHandle((Player) event.getDamager(), event);
+        if (event.getEntity() instanceof Player)
+            checkAndHandle((Player) event.getEntity(), event);
+    }
+
+    @EventHandler
+    public void onInteract(PlayerInteractEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onPickup(PlayerPickupItemEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onDrop(PlayerDropItemEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onOpenInventory(InventoryOpenEvent event) {
         if (event.getPlayer() instanceof Player)
-            checkAndHandle((Player)event.getPlayer(), event);
+            checkAndHandle((Player) event.getPlayer(), event);
     }
 
     // ========== 4. 玩家聊天 /verify 驗證碼 ==========
@@ -112,14 +138,17 @@ public class VerifyListener extends JavaPlugin implements Listener {
             public void onFailure(Call call, IOException e) {
                 player.sendMessage("§c驗證失敗：無法聯絡伺服器！");
             }
+
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
                 if (response.isSuccessful()) {
                     player.sendMessage("§a" + result);
-                    // 若 API 回應包含 "驗證成功" 則加入 verifiedPlayers
                     if (result.contains("驗證成功")) {
                         verifiedPlayers.add(player.getUniqueId());
+                        player.sendMessage("§b你已經通過驗證，歡迎加入伺服器！");
+                        // 在 console 顯示
+                        getLogger().info("玩家 " + player.getName() + " (" + uuid + ") 已經通過驗證！");
                     }
                 } else {
                     player.sendMessage("§c" + result);
