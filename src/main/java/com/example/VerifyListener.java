@@ -27,12 +27,11 @@ public class VerifyListener extends JavaPlugin implements Listener {
         Bukkit.getPluginManager().registerEvents(this, this);
     }
 
-    // ========== 1. 攔移動 ==========
+    // 1. 移動攔截
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
         if (!verifiedPlayers.contains(player.getUniqueId())) {
-            // 只有實際移動時才攔，不然部分版本可能卡住
             if (!event.getFrom().getBlock().equals(event.getTo().getBlock())) {
                 event.setTo(event.getFrom());
                 player.sendMessage("§c請先完成驗證（/verify 驗證碼）才能移動！");
@@ -40,20 +39,44 @@ public class VerifyListener extends JavaPlugin implements Listener {
         }
     }
 
-    // ========== 2. 只允許 /verify 指令 ==========
+    // 2. 只允許執行 /verify 指令
     @EventHandler
     public void onCommand(PlayerCommandPreprocessEvent event) {
         Player player = event.getPlayer();
+        String msg = event.getMessage();
+        if (msg.toLowerCase().startsWith("/verify ")) {
+            event.setCancelled(true); // 攔下不讓伺服器處理
+            String[] parts = msg.split(" ", 2);
+            if (parts.length < 2 || parts[1].isEmpty()) {
+                player.sendMessage("§c請輸入驗證碼，例如 /verify 你的驗證碼");
+                return;
+            }
+            String code = parts[1];
+            String uuid = player.getUniqueId().toString();
+            sendVerifyToAPI(player, uuid, code);
+            return;
+        }
+        // 其他指令全部攔截
         if (!verifiedPlayers.contains(player.getUniqueId())) {
-            String msg = event.getMessage().toLowerCase();
-            if (!msg.startsWith("/verify ")) {
+            event.setCancelled(true);
+            player.sendMessage("§c驗證前只能執行 /verify 驗證碼");
+        }
+    }
+
+    // 3. 禁止發送非 /verify 聊天
+    @EventHandler
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
+        Player player = event.getPlayer();
+        String msg = event.getMessage();
+        if (!verifiedPlayers.contains(player.getUniqueId())) {
+            if (!msg.toLowerCase().startsWith("/verify ")) {
                 event.setCancelled(true);
-                player.sendMessage("§c驗證前只能輸入 /verify 驗證碼");
+                player.sendMessage("§c驗證前只能發送 /verify 驗證碼 作為訊息");
             }
         }
     }
 
-    // ========== 3. 攔其他互動/背包/物品/攻擊等 ==========
+    // 4. 禁止未驗證者進行互動、背包、物品、攻擊等
     @EventHandler public void onBlockPlace(BlockPlaceEvent event) { checkAndHandle(event.getPlayer(), event); }
     @EventHandler public void onBlockBreak(BlockBreakEvent event) { checkAndHandle(event.getPlayer(), event); }
     @EventHandler public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
@@ -70,25 +93,13 @@ public class VerifyListener extends JavaPlugin implements Listener {
             checkAndHandle((Player)event.getPlayer(), event);
     }
 
-    // ========== 4. 玩家聊天 /verify 驗證碼 ==========
-    @EventHandler
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
-        String msg = event.getMessage();
-        if (msg.toLowerCase().startsWith("/verify ")) {
-            String code = msg.split(" ", 2)[1];
-            Player player = event.getPlayer();
-            String uuid = player.getUniqueId().toString();
-            sendVerifyToAPI(player, uuid, code);
-        }
-    }
-
-    // ========== 5. 玩家離線時移除快取 ==========
+    // 5. 玩家離線時移除快取
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         verifiedPlayers.remove(event.getPlayer().getUniqueId());
     }
 
-    // ========== check ==========
+    // ==== 工具 ====
     private void checkAndHandle(Player player, Cancellable event) {
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             event.setCancelled(true);
@@ -96,9 +107,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
         }
     }
 
-    // ========== HTTP ==========
-
-    // 驗證碼提交
+    // ==== HTTP ====
     private void sendVerifyToAPI(Player player, String uuid, String code) {
         String url = API_BASE + "/verify";
         RequestBody body = new FormBody.Builder()
@@ -111,18 +120,18 @@ public class VerifyListener extends JavaPlugin implements Listener {
             @Override
             public void onFailure(Call call, IOException e) {
                 player.sendMessage("§c驗證失敗：無法聯絡伺服器！");
+                Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗（無法聯絡伺服器）");
             }
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
-                if (response.isSuccessful()) {
+                if (response.isSuccessful() && result.contains("驗證成功")) {
                     player.sendMessage("§a" + result);
-                    // 若 API 回應包含 "驗證成功" 則加入 verifiedPlayers
-                    if (result.contains("驗證成功")) {
-                        verifiedPlayers.add(player.getUniqueId());
-                    }
+                    Bukkit.getConsoleSender().sendMessage("§a[VerifyListener] 玩家 " + player.getName() + " 驗證成功！");
+                    verifiedPlayers.add(player.getUniqueId());
                 } else {
                     player.sendMessage("§c" + result);
+                    Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗：" + result);
                 }
             }
         });
