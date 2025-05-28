@@ -2,9 +2,8 @@ package com.example;
 
 import okhttp3.*;
 import org.bukkit.Bukkit;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Listener;
 import org.bukkit.event.*;
 import org.bukkit.event.block.*;
 import org.bukkit.event.entity.*;
@@ -13,11 +12,8 @@ import org.bukkit.event.player.*;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
-import java.net.http.WebSocket.Listener;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-
-import javax.security.auth.callback.Callback;
 
 public class VerifyListener extends JavaPlugin implements Listener {
 
@@ -25,6 +21,8 @@ public class VerifyListener extends JavaPlugin implements Listener {
     private static final String API_BASE = "http://127.0.0.1:8000";
     // 已驗證玩家列表（記憶體快取）
     private final Set<UUID> verifiedPlayers = ConcurrentHashMap.newKeySet();
+    // 驗證同步中玩家
+    private final Set<UUID> verifyingPlayers = ConcurrentHashMap.newKeySet();
 
     @Override
     public void onEnable() {
@@ -36,6 +34,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
+        verifyingPlayers.add(player.getUniqueId());
         checkVerificationStatus(player);
     }
 
@@ -51,16 +50,18 @@ public class VerifyListener extends JavaPlugin implements Listener {
             @Override
             public void onFailure(Call call, IOException e) {
                 Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
-                    getLogger().warning("無法連線到驗證後端，無法確認 " + player.getName() + " 狀態");
+                    verifyingPlayers.remove(player.getUniqueId());
                     verifiedPlayers.remove(player.getUniqueId());
+                    getLogger().warning("無法連線到驗證後端，無法確認 " + player.getName() + " 狀態");
                 });
             }
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
                 Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
-                    getLogger().info( result.trim() );
-                    if ("allow".equals(result.trim().replace("\"",""))) {
+                    verifyingPlayers.remove(player.getUniqueId());
+                    String res = result.trim().replace("\"","");
+                    if ("allow".equals( res )) {
                         verifiedPlayers.add(player.getUniqueId());
                         getLogger().info("玩家 " + player.getName() + " 已經驗證過（API同步）");
                     } else {
@@ -72,10 +73,23 @@ public class VerifyListener extends JavaPlugin implements Listener {
         });
     }
 
+    // 檢查是否驗證中
+    private boolean isVerifying(Player player) {
+        if (verifyingPlayers.contains(player.getUniqueId())) {
+            player.sendMessage("§e驗證狀態同步中，請稍後...");
+            return true;
+        }
+        return false;
+    }
+
     // ====== 玩家移動攔截 ======
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
+        if (isVerifying(player)) {
+            event.setTo(event.getFrom());
+            return;
+        }
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             if (!event.getFrom().getBlock().equals(event.getTo().getBlock())) {
                 event.setTo(event.getFrom());
@@ -90,6 +104,11 @@ public class VerifyListener extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         String rawMsg = event.getMessage();
         String msg = rawMsg.toLowerCase();
+
+        if (isVerifying(player)) {
+            event.setCancelled(true);
+            return;
+        }
 
         // 不論是否已驗證，/verify 指令永遠允許
         if (msg.startsWith("/verify ")) {
@@ -123,6 +142,10 @@ public class VerifyListener extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
+        if (isVerifying(player)) {
+            event.setCancelled(true);
+            return;
+        }
         String msg = event.getMessage();
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             if (!msg.toLowerCase().startsWith("/verify ")) {
@@ -149,14 +172,20 @@ public class VerifyListener extends JavaPlugin implements Listener {
             checkAndHandle((Player)event.getPlayer(), event);
     }
 
-    // 玩家離線時只移除記憶體快取
+    // 玩家離線時移除快取與同步中狀態
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        verifiedPlayers.remove(event.getPlayer().getUniqueId());
+        UUID uuid = event.getPlayer().getUniqueId();
+        verifiedPlayers.remove(uuid);
+        verifyingPlayers.remove(uuid);
     }
 
     // 工具：檢查是否驗證
     private void checkAndHandle(Player player, Cancellable event) {
+        if (isVerifying(player)) {
+            event.setCancelled(true);
+            return;
+        }
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             event.setCancelled(true);
             player.sendMessage("§c請先完成驗證（/verify 驗證碼）才可操作！");
