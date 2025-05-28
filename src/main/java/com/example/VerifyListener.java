@@ -56,6 +56,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
                 Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
+                    getLogger().info( result.trim() );
                     if ("allow".equals(result.trim())) {
                         verifiedPlayers.add(player.getUniqueId());
                         getLogger().info("玩家 " + player.getName() + " 已經驗證過（API同步）");
