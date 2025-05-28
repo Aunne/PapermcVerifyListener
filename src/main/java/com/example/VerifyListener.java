@@ -1,19 +1,26 @@
 package com.example;
 
-import okhttp3.*; // ← 只要這個，完全不用 javax 相關！
+import okhttp3.*;
 import org.bukkit.Bukkit;
+import org.bukkit.Server;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.bukkit.event.Listener;
 import org.bukkit.event.*;
 import org.bukkit.event.block.*;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.*;
+import org.bukkit.event.Listener;
+import org.bukkit.permissions.Permission;
+import org.bukkit.permissions.PermissionAttachment;
+import org.bukkit.permissions.PermissionAttachmentInfo;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+
 
 public class VerifyListener extends JavaPlugin implements Listener {
 
@@ -24,11 +31,9 @@ public class VerifyListener extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
-        getLogger().info("VerifyListener 啟動！");
         Bukkit.getPluginManager().registerEvents(this, this);
     }
 
-    // ====== 玩家登入時查詢驗證狀態 ======
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
@@ -36,7 +41,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
         checkVerificationStatus(player);
     }
 
-    // 查詢 API 驗證狀態
     private void checkVerificationStatus(Player player) {
         String url = API_BASE + "/check_action";
         RequestBody body = new FormBody.Builder()
@@ -58,7 +62,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 String result = response.body().string();
                 Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                     verifyingPlayers.remove(player.getUniqueId());
-                    String res = result.trim().replace("\"","");
+                    String res = result.trim().replace("\"", "");
                     if ("allow".equals(res)) {
                         verifiedPlayers.add(player.getUniqueId());
                         getLogger().info("玩家 " + player.getName() + " 已經驗證過（API同步）");
@@ -71,7 +75,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
         });
     }
 
-    // 檢查是否驗證中
     private boolean isVerifying(Player player) {
         if (verifyingPlayers.contains(player.getUniqueId())) {
             player.sendMessage("§e驗證狀態同步中，請稍後...");
@@ -80,7 +83,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
         return false;
     }
 
-    // ====== 玩家移動攔截 ======
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
@@ -96,7 +98,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
         }
     }
 
-    // ====== 指令攔截 ======
     @EventHandler
     public void onCommand(PlayerCommandPreprocessEvent event) {
         Player player = event.getPlayer();
@@ -108,7 +109,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
             return;
         }
 
-        // /verify 指令永遠允許
         if (msg.startsWith("/verify ")) {
             event.setCancelled(true);
             String[] parts = rawMsg.split(" ", 2);
@@ -122,33 +122,29 @@ public class VerifyListener extends JavaPlugin implements Listener {
             return;
         }
 
-        // 未驗證只能 /verify
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             event.setCancelled(true);
             player.sendMessage("§c驗證前只能執行 /verify 驗證碼");
             return;
         }
 
-        // ==== /tp 指令攔截（自動補玩家名）====
         if (msg.startsWith("/tp ")) {
             event.setCancelled(true);
             String[] args = rawMsg.trim().split("\\s+");
             String tpCmd;
             if (args.length == 4) {
-                // /tp x y z -> /tp 玩家 x y z
                 tpCmd = "tp " + player.getName() + " " + args[1] + " " + args[2] + " " + args[3];
             } else {
-                // 其他 tp 寫法保持原樣（如 /tp A B, /tp A x y z）
                 tpCmd = rawMsg.substring(1);
             }
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), tpCmd);
+            CommandSender feedbackSender = getFeedbackSender(player);
+            Bukkit.dispatchCommand(feedbackSender, tpCmd);
             return;
         }
 
-        // ==== /gamemode 指令攔截 ====
         if (msg.startsWith("/gamemode ")) {
             event.setCancelled(true);
-            String[] args = rawMsg.split(" ", 3); // /gamemode creative
+            String[] args = rawMsg.split(" ", 3);
             String gmCmd;
             if (args.length >= 2) {
                 if (args.length == 2) {
@@ -160,14 +156,12 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 player.sendMessage("§c用法: /gamemode <模式> [玩家]");
                 return;
             }
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), gmCmd);
+            CommandSender feedbackSender = getFeedbackSender(player);
+            Bukkit.dispatchCommand(feedbackSender, gmCmd);
             return;
         }
-
-        // 其餘指令可依需求加白名單
     }
 
-    // ====== 聊天攔截 ======
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
@@ -184,7 +178,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
         }
     }
 
-    // ====== 未驗證互動全面攔截 ======
     @EventHandler public void onBlockPlace(BlockPlaceEvent event) { checkAndHandle(event.getPlayer(), event); }
     @EventHandler public void onBlockBreak(BlockBreakEvent event) { checkAndHandle(event.getPlayer(), event); }
     @EventHandler public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
@@ -201,7 +194,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
             checkAndHandle((Player)event.getPlayer(), event);
     }
 
-    // 玩家離線時移除快取與同步中狀態
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
@@ -209,7 +201,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
         verifyingPlayers.remove(uuid);
     }
 
-    // 工具：檢查是否驗證
     private void checkAndHandle(Player player, Cancellable event) {
         if (isVerifying(player)) {
             event.setCancelled(true);
@@ -221,7 +212,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
         }
     }
 
-    // HTTP 驗證流程
     private void sendVerifyToAPI(Player player, String uuid, String code) {
         String url = API_BASE + "/verify";
         RequestBody body = new FormBody.Builder()
@@ -244,7 +234,6 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 if (response.isSuccessful() && result.contains("驗證成功")) {
                     Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                         player.sendMessage("§a" + result);
-                        // 驗證成功後再次查詢並同步
                         checkVerificationStatus(player);
                     });
                     Bukkit.getConsoleSender().sendMessage("§a[VerifyListener] 玩家 " + player.getName() + " 驗證成功！");
@@ -256,5 +245,30 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 }
             }
         });
+    }
+
+    private CommandSender getFeedbackSender(Player player) {
+        return new CommandSender() {
+            @Override public void sendMessage(String message) { player.sendMessage(message); }
+            @Override public void sendMessage(String[] messages) { for (String m : messages) player.sendMessage(m); }
+            @Override public void sendMessage(java.util.UUID sender, String message) { player.sendMessage(message); }
+            @Override public void sendMessage(java.util.UUID sender, String... messages) { for (String m : messages) player.sendMessage(m); }
+            @Override public Server getServer() { return Bukkit.getServer(); }
+            @Override public String getName() { return "ConsoleRelay"; }
+            @Override public boolean isOp() { return true; }
+            @Override public void setOp(boolean value) {}
+            @Override public boolean isPermissionSet(String perm) { return true; }
+            @Override public boolean hasPermission(String perm) { return true; }
+            @Override public boolean isPermissionSet(Permission perm) { return true; }
+            @Override public boolean hasPermission(Permission perm) { return true; }
+            @Override public PermissionAttachment addAttachment(Plugin plugin, String name, boolean value) { return null; }
+            @Override public PermissionAttachment addAttachment(Plugin plugin) { return null; }
+            @Override public PermissionAttachment addAttachment(Plugin plugin, int ticks) { return null; } // <= 新增
+            @Override public PermissionAttachment addAttachment(Plugin plugin, String name, boolean value, int ticks) { return null; }
+            @Override public void removeAttachment(PermissionAttachment attachment) {}
+            @Override public void recalculatePermissions() {}
+            @Override public Set<PermissionAttachmentInfo> getEffectivePermissions() { return Collections.emptySet(); }
+            @Override public Spigot spigot() { return player.spigot(); }
+        };
     }
 }
