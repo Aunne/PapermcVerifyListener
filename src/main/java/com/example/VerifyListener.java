@@ -3,24 +3,17 @@ package com.example;
 import okhttp3.*;
 import org.bukkit.Bukkit;
 import org.bukkit.Server;
-import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.*;
 import org.bukkit.event.block.*;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.*;
-import org.bukkit.event.Listener;
-import org.bukkit.permissions.Permission;
-import org.bukkit.permissions.PermissionAttachment;
-import org.bukkit.permissions.PermissionAttachmentInfo;
-import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-
 
 public class VerifyListener extends JavaPlugin implements Listener {
 
@@ -57,6 +50,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
                     getLogger().warning("無法連線到驗證後端，無法確認 " + player.getName() + " 狀態");
                 });
             }
+
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
@@ -137,8 +131,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
             } else {
                 tpCmd = rawMsg.substring(1);
             }
-            CommandSender feedbackSender = getFeedbackSender(player);
-            Bukkit.dispatchCommand(feedbackSender, tpCmd);
+            Bukkit.dispatchCommand(player, tpCmd); // 直接用玩家自己
             return;
         }
 
@@ -156,10 +149,10 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 player.sendMessage("§c用法: /gamemode <模式> [玩家]");
                 return;
             }
-            CommandSender feedbackSender = getFeedbackSender(player);
-            Bukkit.dispatchCommand(feedbackSender, gmCmd);
+            Bukkit.dispatchCommand(player, gmCmd); // 直接用玩家自己
             return;
         }
+
     }
 
     @EventHandler
@@ -178,20 +171,46 @@ public class VerifyListener extends JavaPlugin implements Listener {
         }
     }
 
-    @EventHandler public void onBlockPlace(BlockPlaceEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onBlockBreak(BlockBreakEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player)
-            checkAndHandle((Player)event.getDamager(), event);
-        if (event.getEntity() instanceof Player)
-            checkAndHandle((Player)event.getEntity(), event);
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent event) {
+        checkAndHandle(event.getPlayer(), event);
     }
-    @EventHandler public void onInteract(PlayerInteractEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onPickup(PlayerPickupItemEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onDrop(PlayerDropItemEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onOpenInventory(InventoryOpenEvent event) {
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player)
+            checkAndHandle((Player) event.getDamager(), event);
+        if (event.getEntity() instanceof Player)
+            checkAndHandle((Player) event.getEntity(), event);
+    }
+
+    @EventHandler
+    public void onInteract(PlayerInteractEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    // 使用新版 EntityPickupItemEvent
+    @EventHandler
+    public void onPickup(EntityPickupItemEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            checkAndHandle(player, event);
+        }
+    }
+
+    @EventHandler
+    public void onDrop(PlayerDropItemEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onOpenInventory(InventoryOpenEvent event) {
         if (event.getPlayer() instanceof Player)
-            checkAndHandle((Player)event.getPlayer(), event);
+            checkAndHandle((Player) event.getPlayer(), event);
     }
 
     @EventHandler
@@ -228,6 +247,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 });
                 Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗（無法聯絡伺服器）");
             }
+
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
@@ -241,34 +261,10 @@ public class VerifyListener extends JavaPlugin implements Listener {
                     Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                         player.sendMessage("§c" + result);
                     });
-                    Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗：" + result);
+                    Bukkit.getConsoleSender()
+                            .sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗：" + result);
                 }
             }
         });
-    }
-
-    private CommandSender getFeedbackSender(Player player) {
-        return new CommandSender() {
-            @Override public void sendMessage(String message) { player.sendMessage(message); }
-            @Override public void sendMessage(String[] messages) { for (String m : messages) player.sendMessage(m); }
-            @Override public void sendMessage(java.util.UUID sender, String message) { player.sendMessage(message); }
-            @Override public void sendMessage(java.util.UUID sender, String... messages) { for (String m : messages) player.sendMessage(m); }
-            @Override public Server getServer() { return Bukkit.getServer(); }
-            @Override public String getName() { return "ConsoleRelay"; }
-            @Override public boolean isOp() { return true; }
-            @Override public void setOp(boolean value) {}
-            @Override public boolean isPermissionSet(String perm) { return true; }
-            @Override public boolean hasPermission(String perm) { return true; }
-            @Override public boolean isPermissionSet(Permission perm) { return true; }
-            @Override public boolean hasPermission(Permission perm) { return true; }
-            @Override public PermissionAttachment addAttachment(Plugin plugin, String name, boolean value) { return null; }
-            @Override public PermissionAttachment addAttachment(Plugin plugin) { return null; }
-            @Override public PermissionAttachment addAttachment(Plugin plugin, int ticks) { return null; } // <= 新增
-            @Override public PermissionAttachment addAttachment(Plugin plugin, String name, boolean value, int ticks) { return null; }
-            @Override public void removeAttachment(PermissionAttachment attachment) {}
-            @Override public void recalculatePermissions() {}
-            @Override public Set<PermissionAttachmentInfo> getEffectivePermissions() { return Collections.emptySet(); }
-            @Override public Spigot spigot() { return player.spigot(); }
-        };
     }
 }
