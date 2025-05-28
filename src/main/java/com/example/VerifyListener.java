@@ -1,6 +1,6 @@
 package com.example;
 
-import okhttp3.*;
+import okhttp3.*; // OkHttp 所有 class
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
@@ -61,7 +61,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                     verifyingPlayers.remove(player.getUniqueId());
                     String res = result.trim().replace("\"","");
-                    if ("allow".equals( res )) {
+                    if ("allow".equals(res)) {
                         verifiedPlayers.add(player.getUniqueId());
                         getLogger().info("玩家 " + player.getName() + " 已經驗證過（API同步）");
                     } else {
@@ -131,11 +131,40 @@ public class VerifyListener extends JavaPlugin implements Listener {
             return;
         }
 
-        // 已驗證：只允許 /tp、/gamemode、/verify，其餘指令禁止
-        if (!(msg.startsWith("/tp") || msg.startsWith("/gamemode") || msg.startsWith("/verify"))) {
-            event.setCancelled(true);
-            player.sendMessage("§c你只能使用 /tp、/gamemode、/verify 指令！");
+        // ==============================
+        // 白名單：讓已驗證玩家即使沒權限也能 /tp、/gamemode
+        // ==============================
+
+        // 攔截 /tp（玩家自己、玩家之間、或座標TP都可）
+        if (msg.startsWith("/tp ")) {
+            event.setCancelled(true); // 防止權限不足無法執行
+            String tpCmd = rawMsg.substring(1); // 去掉開頭斜線
+            // 讓控制台幫忙執行
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), tpCmd);
+            return;
         }
+
+        // 攔截 /gamemode
+        if (msg.startsWith("/gamemode ")) {
+            event.setCancelled(true);
+            String[] args = rawMsg.split(" ", 3); // e.g., /gamemode creative
+            String gmCmd;
+            if (args.length >= 2) {
+                // /gamemode <模式> [目標]，如果沒指定目標就自動加玩家名
+                if (args.length == 2) {
+                    gmCmd = "gamemode " + args[1] + " " + player.getName();
+                } else {
+                    gmCmd = "gamemode " + args[1] + " " + args[2];
+                }
+            } else {
+                player.sendMessage("§c用法: /gamemode <模式> [玩家]");
+                return;
+            }
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), gmCmd);
+            return;
+        }
+
+        // 其餘指令不處理（可依需求加入更多白名單）
     }
 
     // ====== 聊天攔截 ======
