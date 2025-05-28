@@ -1,6 +1,6 @@
 package com.example;
 
-import okhttp3.*; // OkHttp 所有 class
+import okhttp3.*; // ← 只要這個，完全不用 javax 相關！
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
@@ -19,9 +19,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
 
     private final OkHttpClient httpClient = new OkHttpClient();
     private static final String API_BASE = "http://127.0.0.1:8000";
-    // 已驗證玩家列表（記憶體快取）
     private final Set<UUID> verifiedPlayers = ConcurrentHashMap.newKeySet();
-    // 驗證同步中玩家
     private final Set<UUID> verifyingPlayers = ConcurrentHashMap.newKeySet();
 
     @Override
@@ -110,7 +108,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
             return;
         }
 
-        // 不論是否已驗證，/verify 指令永遠允許
+        // /verify 指令永遠允許
         if (msg.startsWith("/verify ")) {
             event.setCancelled(true);
             String[] parts = rawMsg.split(" ", 2);
@@ -124,33 +122,35 @@ public class VerifyListener extends JavaPlugin implements Listener {
             return;
         }
 
-        // 未驗證只能執行 /verify
+        // 未驗證只能 /verify
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             event.setCancelled(true);
             player.sendMessage("§c驗證前只能執行 /verify 驗證碼");
             return;
         }
 
-        // ==============================
-        // 白名單：讓已驗證玩家即使沒權限也能 /tp、/gamemode
-        // ==============================
-
-        // 攔截 /tp（玩家自己、玩家之間、或座標TP都可）
+        // ==== /tp 指令攔截（自動補玩家名）====
         if (msg.startsWith("/tp ")) {
-            event.setCancelled(true); // 防止權限不足無法執行
-            String tpCmd = rawMsg.substring(1); // 去掉開頭斜線
-            // 讓控制台幫忙執行
+            event.setCancelled(true);
+            String[] args = rawMsg.trim().split("\\s+");
+            String tpCmd;
+            if (args.length == 4) {
+                // /tp x y z -> /tp 玩家 x y z
+                tpCmd = "tp " + player.getName() + " " + args[1] + " " + args[2] + " " + args[3];
+            } else {
+                // 其他 tp 寫法保持原樣（如 /tp A B, /tp A x y z）
+                tpCmd = rawMsg.substring(1);
+            }
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), tpCmd);
             return;
         }
 
-        // 攔截 /gamemode
+        // ==== /gamemode 指令攔截 ====
         if (msg.startsWith("/gamemode ")) {
             event.setCancelled(true);
-            String[] args = rawMsg.split(" ", 3); // e.g., /gamemode creative
+            String[] args = rawMsg.split(" ", 3); // /gamemode creative
             String gmCmd;
             if (args.length >= 2) {
-                // /gamemode <模式> [目標]，如果沒指定目標就自動加玩家名
                 if (args.length == 2) {
                     gmCmd = "gamemode " + args[1] + " " + player.getName();
                 } else {
@@ -164,7 +164,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
             return;
         }
 
-        // 其餘指令不處理（可依需求加入更多白名單）
+        // 其餘指令可依需求加白名單
     }
 
     // ====== 聊天攔截 ======
