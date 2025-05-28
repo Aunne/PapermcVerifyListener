@@ -13,8 +13,11 @@ import org.bukkit.event.player.*;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
+import java.net.http.WebSocket.Listener;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+
+import javax.security.auth.callback.Callback;
 
 public class VerifyListener extends JavaPlugin implements Listener {
 
@@ -57,7 +60,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 String result = response.body().string();
                 Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                     getLogger().info( result.trim() );
-                    if ("allow".equals(result.trim())) {
+                    if ("allow".equals(result.trim().replace("\"",""))) {
                         verifiedPlayers.add(player.getUniqueId());
                         getLogger().info("玩家 " + player.getName() + " 已經驗證過（API同步）");
                     } else {
