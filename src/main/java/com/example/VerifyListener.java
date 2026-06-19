@@ -1,18 +1,38 @@
 package com.example;
 
-import okhttp3.*; // ← 只要這個，完全不用 javax 相關！
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.FormBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Cancellable;
+import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.*;
-import org.bukkit.event.block.*;
-import org.bukkit.event.entity.*;
-import org.bukkit.event.inventory.*;
-import org.bukkit.event.player.*;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import io.papermc.paper.event.player.AsyncChatEvent;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerPickupItemEvent;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class VerifyListener extends JavaPlugin implements Listener {
@@ -53,17 +73,26 @@ public class VerifyListener extends JavaPlugin implements Listener {
                     getLogger().warning("無法連線到驗證後端，無法確認 " + player.getName() + " 狀態");
                 });
             }
+
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
                 Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                     verifyingPlayers.remove(player.getUniqueId());
-                    String res = result.trim().replace("\"","");
+                    String res = result.trim().replace("\"", "");
                     if ("allow".equals(res)) {
                         verifiedPlayers.add(player.getUniqueId());
+
+                        // 重新同步玩家可用指令，讓 /tp /gamemode 候選字更新
+                        player.updateCommands();
+
                         getLogger().info("玩家 " + player.getName() + " 已經驗證過（API同步）");
                     } else {
                         verifiedPlayers.remove(player.getUniqueId());
+
+                        // 未驗證時也刷新一次，避免候選字殘留
+                        player.updateCommands();
+
                         getLogger().info("玩家 " + player.getName() + " 尚未驗證（API同步）");
                     }
                 });
@@ -111,11 +140,13 @@ public class VerifyListener extends JavaPlugin implements Listener {
         // /verify 指令永遠允許
         if (msg.startsWith("/verify ")) {
             event.setCancelled(true);
+
             String[] parts = rawMsg.split(" ", 2);
             if (parts.length < 2 || parts[1].isEmpty()) {
                 player.sendMessage("§c請輸入驗證碼，例如 /verify 你的驗證碼");
                 return;
             }
+
             String code = parts[1];
             String uuid = player.getUniqueId().toString();
             sendVerifyToAPI(player, uuid, code);
@@ -129,53 +160,23 @@ public class VerifyListener extends JavaPlugin implements Listener {
             return;
         }
 
-        // ==== /tp 指令攔截（自動補玩家名）====
-        if (msg.startsWith("/tp ")) {
-            event.setCancelled(true);
-            String[] args = rawMsg.trim().split("\\s+");
-            String tpCmd;
-            if (args.length == 4) {
-                // /tp x y z -> /tp 玩家 x y z
-                tpCmd = "tp " + player.getName() + " " + args[1] + " " + args[2] + " " + args[3];
-            } else {
-                // 其他 tp 寫法保持原樣（如 /tp A B, /tp A x y z）
-                tpCmd = rawMsg.substring(1);
-            }
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), tpCmd);
-            return;
-        }
-
-        // ==== /gamemode 指令攔截 ====
-        if (msg.startsWith("/gamemode ")) {
-            event.setCancelled(true);
-            String[] args = rawMsg.split(" ", 3); // /gamemode creative
-            String gmCmd;
-            if (args.length >= 2) {
-                if (args.length == 2) {
-                    gmCmd = "gamemode " + args[1] + " " + player.getName();
-                } else {
-                    gmCmd = "gamemode " + args[1] + " " + args[2];
-                }
-            } else {
-                player.sendMessage("§c用法: /gamemode <模式> [玩家]");
-                return;
-            }
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), gmCmd);
-            return;
-        }
-
-        // 其餘指令可依需求加白名單
+        // 已驗證玩家：不攔截指令
+        // /tp、/gamemode 是否能用，交給 LuckPerms 判斷
     }
 
     // ====== 聊天攔截 ======
     @EventHandler
-    public void onPlayerChat(AsyncPlayerChatEvent event) {
+    public void onPlayerChat(AsyncChatEvent event) {
         Player player = event.getPlayer();
+
         if (isVerifying(player)) {
             event.setCancelled(true);
             return;
         }
-        String msg = event.getMessage();
+
+        String msg = PlainTextComponentSerializer.plainText()
+                .serialize(event.message());
+
         if (!verifiedPlayers.contains(player.getUniqueId())) {
             if (!msg.toLowerCase().startsWith("/verify ")) {
                 event.setCancelled(true);
@@ -185,20 +186,45 @@ public class VerifyListener extends JavaPlugin implements Listener {
     }
 
     // ====== 未驗證互動全面攔截 ======
-    @EventHandler public void onBlockPlace(BlockPlaceEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onBlockBreak(BlockBreakEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player)
-            checkAndHandle((Player)event.getDamager(), event);
-        if (event.getEntity() instanceof Player)
-            checkAndHandle((Player)event.getEntity(), event);
+    @EventHandler
+    public void onBlockPlace(BlockPlaceEvent event) {
+        checkAndHandle(event.getPlayer(), event);
     }
-    @EventHandler public void onInteract(PlayerInteractEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onPickup(PlayerPickupItemEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onDrop(PlayerDropItemEvent event) { checkAndHandle(event.getPlayer(), event); }
-    @EventHandler public void onOpenInventory(InventoryOpenEvent event) {
+
+    @EventHandler
+    public void onBlockBreak(BlockBreakEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player)
+            checkAndHandle((Player) event.getDamager(), event);
+        if (event.getEntity() instanceof Player)
+            checkAndHandle((Player) event.getEntity(), event);
+    }
+
+    @EventHandler
+    public void onInteract(PlayerInteractEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onPickup(EntityPickupItemEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            checkAndHandle(player, event);
+        }
+    }
+
+    @EventHandler
+    public void onDrop(PlayerDropItemEvent event) {
+        checkAndHandle(event.getPlayer(), event);
+    }
+
+    @EventHandler
+    public void onOpenInventory(InventoryOpenEvent event) {
         if (event.getPlayer() instanceof Player)
-            checkAndHandle((Player)event.getPlayer(), event);
+            checkAndHandle((Player) event.getPlayer(), event);
     }
 
     // 玩家離線時移除快取與同步中狀態
@@ -238,13 +264,21 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 });
                 Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗（無法聯絡伺服器）");
             }
+
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 String result = response.body().string();
                 if (response.isSuccessful() && result.contains("驗證成功")) {
                     Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                         player.sendMessage("§a" + result);
-                        // 驗證成功後再次查詢並同步
+
+                        // 後端已經驗證成功，先讓外掛本地狀態通過
+                        verifiedPlayers.add(player.getUniqueId());
+
+                        // 後端已經用 LuckPerms 給權限，刷新候選字
+                        player.updateCommands();
+
+                        // 再向後端同步一次狀態
                         checkVerificationStatus(player);
                     });
                     Bukkit.getConsoleSender().sendMessage("§a[VerifyListener] 玩家 " + player.getName() + " 驗證成功！");
@@ -252,7 +286,8 @@ public class VerifyListener extends JavaPlugin implements Listener {
                     Bukkit.getScheduler().runTask(VerifyListener.this, () -> {
                         player.sendMessage("§c" + result);
                     });
-                    Bukkit.getConsoleSender().sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗：" + result);
+                    Bukkit.getConsoleSender()
+                            .sendMessage("§c[VerifyListener] 玩家 " + player.getName() + " 驗證失敗：" + result);
                 }
             }
         });
