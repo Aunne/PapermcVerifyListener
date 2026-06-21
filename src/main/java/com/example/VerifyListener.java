@@ -97,10 +97,10 @@ public class VerifyListener extends JavaPlugin implements Listener {
 
     }
 
-    // 用來註冊 /set_temp_location 和 /tmp_location 指令
+    // 用來註冊 /set_place 和 /back 指令
     // 每個玩家會有自己的暫時傳送點
     private void registerTempLocationCommands() {
-        PluginCommand setTempCommand = getCommand("set_temp_location");
+        PluginCommand setTempCommand = getCommand("set_place");
         if (setTempCommand != null) {
             setTempCommand.setExecutor((sender, command, label, args) -> {
                 if (!(sender instanceof Player player)) {
@@ -144,12 +144,12 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 return true;
             });
         } else {
-            getLogger().warning("找不到 /set_temp_location 指令，請檢查 plugin.yml");
+            getLogger().warning("找不到 /set_place 指令，請檢查 plugin.yml");
         }
 
-        PluginCommand tmpCommand = getCommand("tmp_location");
-        if (tmpCommand != null) {
-            tmpCommand.setExecutor((sender, command, label, args) -> {
+        PluginCommand backCommand = getCommand("back");
+        if (backCommand != null) {
+            backCommand.setExecutor((sender, command, label, args) -> {
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage("這個指令只能由玩家使用");
                     return true;
@@ -168,7 +168,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
 
                 String worldName = getConfig().getString(key + ".world");
                 if (worldName == null || worldName.isBlank()) {
-                    player.sendMessage("§c你尚未設定暫時傳送點，請先使用 /set_temp_location");
+                    player.sendMessage("§c你尚未設定暫時傳送點，請先使用 /set_place");
                     return true;
                 }
 
@@ -192,7 +192,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
                 return true;
             });
         } else {
-            getLogger().warning("找不到 /tmp_location 指令，請檢查 plugin.yml");
+            getLogger().warning("找不到 /back 指令，請檢查 plugin.yml");
         }
     }
 
