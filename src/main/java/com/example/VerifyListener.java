@@ -24,8 +24,6 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
-import org.bukkit.event.player.PlayerPickupItemEvent;
-import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -50,7 +48,20 @@ public class VerifyListener extends JavaPlugin implements Listener {
         getLogger().info("VerifyListener 啟動！");
         Bukkit.getPluginManager().registerEvents(this, this);
 
-        // 用來註冊 Home 指令，讓未驗證玩家無法使用 /home
+        registerHomeCommand();
+        registerTempLocationCommands();
+    }
+
+    // ====== 玩家登入時查詢驗證狀態 ======
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        verifyingPlayers.add(player.getUniqueId());
+        checkVerificationStatus(player);
+    }
+
+    // 用來註冊 Home 指令，讓未驗證玩家無法使用 /home
+    private void registerHomeCommand() {
         PluginCommand homeCommand = getCommand("home");
         if (homeCommand != null) {
             homeCommand.setExecutor((sender, command, label, args) -> {
@@ -74,7 +85,7 @@ public class VerifyListener extends JavaPlugin implements Listener {
                     return true;
                 }
 
-                Location home = new Location(world, -70, 67, -126);
+                Location home = new Location(world, -70, 67, 126);
                 player.teleport(home);
                 player.sendMessage("§a已傳送回家");
 
@@ -83,14 +94,106 @@ public class VerifyListener extends JavaPlugin implements Listener {
         } else {
             getLogger().warning("找不到 /home 指令，請檢查 plugin.yml 是否有註冊 commands.home");
         }
+
     }
 
-    // ====== 玩家登入時查詢驗證狀態 ======
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        Player player = event.getPlayer();
-        verifyingPlayers.add(player.getUniqueId());
-        checkVerificationStatus(player);
+    // 用來註冊 /set_temp_location 和 /tmp_location 指令
+    // 每個玩家會有自己的暫時傳送點
+    private void registerTempLocationCommands() {
+        PluginCommand setTempCommand = getCommand("set_temp_location");
+        if (setTempCommand != null) {
+            setTempCommand.setExecutor((sender, command, label, args) -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("這個指令只能由玩家使用");
+                    return true;
+                }
+
+                if (isVerifying(player)) {
+                    return true;
+                }
+
+                if (!verifiedPlayers.contains(player.getUniqueId())) {
+                    player.sendMessage("§c請先完成驗證後才能設定暫時傳送點");
+                    return true;
+                }
+
+                Location loc = player.getLocation();
+
+                if (loc.getWorld() == null) {
+                    player.sendMessage("§c無法取得目前世界");
+                    return true;
+                }
+
+                String key = "temp-locations." + player.getUniqueId();
+
+                getConfig().set(key + ".world", loc.getWorld().getName());
+                getConfig().set(key + ".x", loc.getX());
+                getConfig().set(key + ".y", loc.getY());
+                getConfig().set(key + ".z", loc.getZ());
+                getConfig().set(key + ".yaw", loc.getYaw());
+                getConfig().set(key + ".pitch", loc.getPitch());
+                saveConfig();
+
+                player.sendMessage("§a已設定你的暫時傳送點：");
+                player.sendMessage("§7世界: §f" + loc.getWorld().getName());
+                player.sendMessage("§7座標: §f" +
+                        loc.getBlockX() + " " +
+                        loc.getBlockY() + " " +
+                        loc.getBlockZ());
+
+                return true;
+            });
+        } else {
+            getLogger().warning("找不到 /set_temp_location 指令，請檢查 plugin.yml");
+        }
+
+        PluginCommand tmpCommand = getCommand("tmp_location");
+        if (tmpCommand != null) {
+            tmpCommand.setExecutor((sender, command, label, args) -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("這個指令只能由玩家使用");
+                    return true;
+                }
+
+                if (isVerifying(player)) {
+                    return true;
+                }
+
+                if (!verifiedPlayers.contains(player.getUniqueId())) {
+                    player.sendMessage("§c請先完成驗證後才能使用暫時傳送點");
+                    return true;
+                }
+
+                String key = "temp-locations." + player.getUniqueId();
+
+                String worldName = getConfig().getString(key + ".world");
+                if (worldName == null || worldName.isBlank()) {
+                    player.sendMessage("§c你尚未設定暫時傳送點，請先使用 /set_temp_location");
+                    return true;
+                }
+
+                World world = Bukkit.getWorld(worldName);
+                if (world == null) {
+                    player.sendMessage("§c找不到世界：" + worldName);
+                    return true;
+                }
+
+                double x = getConfig().getDouble(key + ".x");
+                double y = getConfig().getDouble(key + ".y");
+                double z = getConfig().getDouble(key + ".z");
+                float yaw = (float) getConfig().getDouble(key + ".yaw");
+                float pitch = (float) getConfig().getDouble(key + ".pitch");
+
+                Location target = new Location(world, x, y, z, yaw, pitch);
+                player.teleport(target);
+
+                player.sendMessage("§a已傳送到你的暫時傳送點");
+
+                return true;
+            });
+        } else {
+            getLogger().warning("找不到 /tmp_location 指令，請檢查 plugin.yml");
+        }
     }
 
     // 查詢 API 驗證狀態

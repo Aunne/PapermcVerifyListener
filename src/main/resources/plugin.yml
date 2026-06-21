@@ -10,7 +10,27 @@ commands:
     permission: verifylistener.home
     permission-message: "§c你沒有使用 /home 的權限"
 
+  set_temp_location:
+    description: 設定自己的暫時傳送點
+    usage: /set_temp_location
+    permission: verifylistener.set_temp_location
+    permission-message: "§c你沒有設定暫時傳送點的權限"
+
+  tmp_location:
+    description: 傳送到自己的暫時傳送點
+    usage: /tmp_location
+    permission: verifylistener.tmp_location
+    permission-message: "§c你沒有使用暫時傳送點的權限"
+
 permissions:
   verifylistener.home:
     description: 允許使用 /home
+    default: false
+
+  verifylistener.set_temp_location:
+    description: 允許設定自己的暫時傳送點
+    default: false
+
+  verifylistener.tmp_location:
+    description: 允許傳送到自己的暫時傳送點
     default: false
