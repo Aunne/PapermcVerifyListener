@@ -1,4 +1,16 @@
 name: VerifyListener
-main: com.example.VerifyListener
 version: 1.0
-api-version: 1.21
+main: com.example.VerifyListener
+api-version: '26.2'
+
+commands:
+  home:
+    description: 傳送回家
+    usage: /home
+    permission: verifylistener.home
+    permission-message: "§c你沒有使用 /home 的權限"
+
+permissions:
+  verifylistener.home:
+    description: 允許使用 /home
+    default: false

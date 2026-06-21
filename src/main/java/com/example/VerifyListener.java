@@ -29,6 +29,9 @@ import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.command.PluginCommand;
 
 import java.io.IOException;
 import java.util.Set;
@@ -46,6 +49,40 @@ public class VerifyListener extends JavaPlugin implements Listener {
     public void onEnable() {
         getLogger().info("VerifyListener 啟動！");
         Bukkit.getPluginManager().registerEvents(this, this);
+
+        // 用來註冊 Home 指令，讓未驗證玩家無法使用 /home
+        PluginCommand homeCommand = getCommand("home");
+        if (homeCommand != null) {
+            homeCommand.setExecutor((sender, command, label, args) -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage("這個指令只能由玩家使用");
+                    return true;
+                }
+
+                if (isVerifying(player)) {
+                    return true;
+                }
+
+                if (!verifiedPlayers.contains(player.getUniqueId())) {
+                    player.sendMessage("§c請先完成驗證後才能使用 /home");
+                    return true;
+                }
+
+                World world = Bukkit.getWorld("world");
+                if (world == null) {
+                    player.sendMessage("§c找不到 world 世界，無法傳送");
+                    return true;
+                }
+
+                Location home = new Location(world, -70, 67, -126);
+                player.teleport(home);
+                player.sendMessage("§a已傳送回家");
+
+                return true;
+            });
+        } else {
+            getLogger().warning("找不到 /home 指令，請檢查 plugin.yml 是否有註冊 commands.home");
+        }
     }
 
     // ====== 玩家登入時查詢驗證狀態 ======
